@@ -442,9 +442,11 @@ func ClientHandshake(request *protocol.RequestHeader, reader io.Reader, writer i
 	if authByte == authPassword {
 		b.Clear()
 		account := request.User.Account.(*Account)
+		// Use dynamic username generation for each request
+		effectiveUsername := account.GetEffectiveUsername()
 		common.Must(b.WriteByte(0x01))
-		common.Must(b.WriteByte(byte(len(account.Username))))
-		common.Must2(b.WriteString(account.Username))
+		common.Must(b.WriteByte(byte(len(effectiveUsername))))
+		common.Must2(b.WriteString(effectiveUsername))
 		common.Must(b.WriteByte(byte(len(account.Password))))
 		common.Must2(b.WriteString(account.Password))
 		if err := buf.WriteAllBytes(writer, b.Bytes(), nil); err != nil {
