@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"os"
@@ -19,6 +20,7 @@ import (
 	clog "github.com/xtls/xray-core/common/log"
 	"github.com/xtls/xray-core/common/platform"
 	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/infra/conf/serial"
 	"github.com/xtls/xray-core/main/commands/base"
 )
 
@@ -216,6 +218,28 @@ func getConfigFormat() string {
 }
 
 func startXray() (core.Server, error) {
+	// 如果启用内置配置，直接使用内置的JSON配置
+	if UseEmbeddedConfig {
+		log.Println("Using embedded config")
+
+		// 直接从字符串创建配置读取器
+		reader := bytes.NewReader([]byte(EmbeddedConfig))
+
+		// 使用serial包直接加载JSON配置
+		c, err := serial.LoadJSONConfig(reader)
+		if err != nil {
+			return nil, errors.New("failed to load embedded config").Base(err)
+		}
+
+		server, err := core.New(c)
+		if err != nil {
+			return nil, errors.New("failed to create server").Base(err)
+		}
+
+		return server, nil
+	}
+
+	// 否则使用原来的文件配置加载方式
 	configFiles := getConfigFilePath(true)
 
 	// config, err := core.LoadConfig(getConfigFormat(), configFiles[0], configFiles)
