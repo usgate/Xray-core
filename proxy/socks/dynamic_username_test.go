@@ -273,3 +273,54 @@ func TestCacheCleanup(t *testing.T) {
 		t.Errorf("Expected cache size 1 after cleanup, got %d", gen.GetCacheSize())
 	}
 }
+
+func TestPeriodicCleanup(t *testing.T) {
+	gen := NewDynamicUsernameGenerator()
+
+	// Force the last cleanup time to be old to trigger immediate cleanup
+	gen.lastCleanup = time.Now().Add(-10 * time.Minute)
+
+	// Generate a username to populate cache
+	template := "test_{sid-4}{kp-30}"
+	gen.GenerateUsername(template)
+
+	// Check cache size
+	if gen.GetCacheSize() != 1 {
+		t.Errorf("Expected cache size 1, got %d", gen.GetCacheSize())
+	}
+
+	// The periodic cleanup should have been triggered by GenerateUsername
+	// but it runs in background, so we need to wait a bit
+	time.Sleep(100 * time.Millisecond)
+
+	// Cache should still be there since entry is recent
+	if gen.GetCacheSize() != 1 {
+		t.Errorf("Expected cache size 1 after periodic cleanup, got %d", gen.GetCacheSize())
+	}
+}
+
+func TestCleanupOldEntries(t *testing.T) {
+	gen := NewDynamicUsernameGenerator()
+	baseTemplate := "test_{sid-4}"
+
+	// Manually add an old cache entry
+	gen.mutex.Lock()
+	gen.cache[baseTemplate] = &UsernameCache{
+		username:    "testABCD",
+		generatedAt: time.Now().Add(-15 * time.Minute), // 15 minutes old
+	}
+	gen.mutex.Unlock()
+
+	// Check cache size before cleanup
+	if gen.GetCacheSize() != 1 {
+		t.Errorf("Expected cache size 1 before cleanup, got %d", gen.GetCacheSize())
+	}
+
+	// Run cleanup - should remove the old entry
+	gen.CleanupExpiredCache()
+
+	// Cache should be empty now
+	if gen.GetCacheSize() != 0 {
+		t.Errorf("Expected cache size 0 after cleanup, got %d", gen.GetCacheSize())
+	}
+}

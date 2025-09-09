@@ -29,11 +29,16 @@ func NewDynamicUsernameGenerator() *DynamicUsernameGenerator {
 	pattern := regexp.MustCompile(`\{sid-(\d+)\}`)
 	// Pattern to match {kp-N} where N is the keep duration in seconds
 	kpPattern := regexp.MustCompile(`\{kp-(\d+)\}`)
-	return &DynamicUsernameGenerator{
+	gen := &DynamicUsernameGenerator{
 		pattern:   pattern,
 		kpPattern: kpPattern,
 		cache:     make(map[string]*UsernameCache),
 	}
+
+	// Start background cleanup timer
+	go gen.startCleanupTimer()
+
+	return gen
 }
 
 // GenerateUsername generates a dynamic username based on the template
@@ -97,6 +102,16 @@ func (g *DynamicUsernameGenerator) generateUsernameInternal(template string) str
 	})
 }
 
+// startCleanupTimer starts a background timer to periodically clean up expired cache entries
+func (g *DynamicUsernameGenerator) startCleanupTimer() {
+	ticker := time.NewTicker(5 * time.Minute) // Clean up every 5 minutes
+	defer ticker.Stop()
+
+	for range ticker.C {
+		g.CleanupExpiredCache()
+	}
+}
+
 // extractKeepDuration extracts the keep duration from {kp-N} pattern
 func (g *DynamicUsernameGenerator) extractKeepDuration(template string) int {
 	matches := g.kpPattern.FindStringSubmatch(template)
@@ -119,10 +134,12 @@ func (g *DynamicUsernameGenerator) CleanupExpiredCache() {
 
 	now := time.Now()
 	for baseTemplate, cached := range g.cache {
-		// We need to extract the keep duration from the original template
-		// Since we only store the base template, we'll use a default cleanup interval
-		// This method is mainly for housekeeping to prevent memory leaks
-		if now.Sub(cached.generatedAt).Hours() > 1 { // Clean up after 1 hour regardless
+		// Calculate how long this cache entry has been around
+		age := now.Sub(cached.generatedAt)
+
+		// Clean up entries that are older than 10 minutes
+		// This is a reasonable default since most {kp-N} values should be much shorter
+		if age.Minutes() > 10 {
 			delete(g.cache, baseTemplate)
 		}
 	}
