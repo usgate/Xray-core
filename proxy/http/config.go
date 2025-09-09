@@ -4,7 +4,18 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/username"
 )
+
+var dynamicUsernameGen = username.GetGlobalDynamicUsernameGenerator()
+
+// GetEffectiveUsername returns the effective username, generating dynamic parts if needed
+func (a *Account) GetEffectiveUsername() string {
+	if dynamicUsernameGen.HasDynamicPattern(a.Username) {
+		return dynamicUsernameGen.GenerateUsername(a.Username)
+	}
+	return a.Username
+}
 
 func (a *Account) Equals(another protocol.Account) bool {
 	if account, ok := another.(*Account); ok {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -218,7 +219,10 @@ func setUpHTTPTunnel(ctx context.Context, dest net.Destination, target string, u
 
 	if user != nil && user.Account != nil {
 		account := user.Account.(*Account)
-		auth := account.GetUsername() + ":" + account.GetPassword()
+		// Use dynamic username generation for each request
+		effectiveUsername := account.GetEffectiveUsername()
+		log.Println("http Effective username: ", effectiveUsername)
+		auth := effectiveUsername + ":" + account.GetPassword()
 		req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
 	}
 

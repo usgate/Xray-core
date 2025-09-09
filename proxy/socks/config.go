@@ -4,9 +4,10 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/username"
 )
 
-var dynamicUsernameGen = NewDynamicUsernameGenerator()
+var dynamicUsernameGen = username.GetGlobalDynamicUsernameGenerator()
 
 // GetEffectiveUsername returns the effective username, generating dynamic parts if needed
 func (a *Account) GetEffectiveUsername() string {
