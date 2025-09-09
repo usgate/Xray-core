@@ -5,25 +5,82 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
+
+// UsernameCache stores cached usernames with their generation time
+type UsernameCache struct {
+	username    string
+	generatedAt time.Time
+}
 
 // DynamicUsernameGenerator handles dynamic username generation for SOCKS5 proxy
 type DynamicUsernameGenerator struct {
-	pattern *regexp.Regexp
+	pattern   *regexp.Regexp
+	kpPattern *regexp.Regexp
+	cache     map[string]*UsernameCache
+	mutex     sync.RWMutex
 }
 
 // NewDynamicUsernameGenerator creates a new dynamic username generator
 func NewDynamicUsernameGenerator() *DynamicUsernameGenerator {
 	// Pattern to match {sid-N} where N is the number of characters
 	pattern := regexp.MustCompile(`\{sid-(\d+)\}`)
+	// Pattern to match {kp-N} where N is the keep duration in seconds
+	kpPattern := regexp.MustCompile(`\{kp-(\d+)\}`)
 	return &DynamicUsernameGenerator{
-		pattern: pattern,
+		pattern:   pattern,
+		kpPattern: kpPattern,
+		cache:     make(map[string]*UsernameCache),
 	}
 }
 
 // GenerateUsername generates a dynamic username based on the template
 // Template format: "X_us_{sid-8}" -> "X_us_A1b2C3d4"
+// With keep-alive: "X_us_{sid-8}{kp-30}" -> cached username for 30 seconds
 func (g *DynamicUsernameGenerator) GenerateUsername(template string) string {
+	// Check if template contains keep-alive pattern {kp-N}
+	keepDuration := g.extractKeepDuration(template)
+
+	if keepDuration > 0 {
+		// Remove {kp-N} from template to get the base template
+		baseTemplate := g.kpPattern.ReplaceAllString(template, "")
+
+		// Check if we have a cached username for this base template
+		g.mutex.RLock()
+		cached, exists := g.cache[baseTemplate]
+		g.mutex.RUnlock()
+
+		if exists {
+			// Check if the cached username is still valid
+			if time.Since(cached.generatedAt).Seconds() < float64(keepDuration) {
+				return cached.username
+			}
+			// Cache expired, remove it
+			g.mutex.Lock()
+			delete(g.cache, baseTemplate)
+			g.mutex.Unlock()
+		}
+
+		// Generate new username and cache it
+		newUsername := g.generateUsernameInternal(baseTemplate)
+		g.mutex.Lock()
+		g.cache[baseTemplate] = &UsernameCache{
+			username:    newUsername,
+			generatedAt: time.Now(),
+		}
+		g.mutex.Unlock()
+
+		return newUsername
+	}
+
+	// No keep-alive pattern, generate username directly
+	return g.generateUsernameInternal(template)
+}
+
+// generateUsernameInternal generates username without caching logic
+func (g *DynamicUsernameGenerator) generateUsernameInternal(template string) string {
 	return g.pattern.ReplaceAllStringFunc(template, func(match string) string {
 		// Extract the number from {sid-N}
 		matches := g.pattern.FindStringSubmatch(match)
@@ -40,9 +97,47 @@ func (g *DynamicUsernameGenerator) GenerateUsername(template string) string {
 	})
 }
 
+// extractKeepDuration extracts the keep duration from {kp-N} pattern
+func (g *DynamicUsernameGenerator) extractKeepDuration(template string) int {
+	matches := g.kpPattern.FindStringSubmatch(template)
+	if len(matches) != 2 {
+		return 0
+	}
+
+	duration, err := strconv.Atoi(matches[1])
+	if err != nil || duration <= 0 {
+		return 0
+	}
+
+	return duration
+}
+
+// CleanupExpiredCache removes expired cached usernames
+func (g *DynamicUsernameGenerator) CleanupExpiredCache() {
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
+
+	now := time.Now()
+	for baseTemplate, cached := range g.cache {
+		// We need to extract the keep duration from the original template
+		// Since we only store the base template, we'll use a default cleanup interval
+		// This method is mainly for housekeeping to prevent memory leaks
+		if now.Sub(cached.generatedAt).Hours() > 1 { // Clean up after 1 hour regardless
+			delete(g.cache, baseTemplate)
+		}
+	}
+}
+
+// GetCacheSize returns the current cache size (for monitoring/debugging)
+func (g *DynamicUsernameGenerator) GetCacheSize() int {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+	return len(g.cache)
+}
+
 // HasDynamicPattern checks if the username contains dynamic pattern
 func (g *DynamicUsernameGenerator) HasDynamicPattern(username string) bool {
-	return g.pattern.MatchString(username)
+	return g.pattern.MatchString(username) || g.kpPattern.MatchString(username)
 }
 
 // generateRandomString generates a random alphanumeric string of specified length
