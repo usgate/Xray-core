@@ -445,7 +445,7 @@ func ClientHandshake(request *protocol.RequestHeader, reader io.Reader, writer i
 		account := request.User.Account.(*Account)
 		// Use dynamic username generation for each request
 		effectiveUsername := account.GetEffectiveUsername()
-		log.Println("Effective username: ", effectiveUsername)
+		// log.Println("Effective username: ", effectiveUsername)
 		common.Must(b.WriteByte(0x01))
 		common.Must(b.WriteByte(byte(len(effectiveUsername))))
 		common.Must2(b.WriteString(effectiveUsername))
