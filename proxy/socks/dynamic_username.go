@@ -17,22 +17,26 @@ type UsernameCache struct {
 
 // DynamicUsernameGenerator handles dynamic username generation for SOCKS5 proxy
 type DynamicUsernameGenerator struct {
-	pattern   *regexp.Regexp
-	kpPattern *regexp.Regexp
-	cache     map[string]*UsernameCache
-	mutex     sync.RWMutex
+	pattern    *regexp.Regexp // {sid-N} pattern for alphanumeric
+	didPattern *regexp.Regexp // {did-N} pattern for digits only
+	kpPattern  *regexp.Regexp // {kp-N} pattern for keep-alive
+	cache      map[string]*UsernameCache
+	mutex      sync.RWMutex
 }
 
 // NewDynamicUsernameGenerator creates a new dynamic username generator
 func NewDynamicUsernameGenerator() *DynamicUsernameGenerator {
 	// Pattern to match {sid-N} where N is the number of characters
 	pattern := regexp.MustCompile(`\{sid-(\d+)\}`)
+	// Pattern to match {did-N} where N is the number of digits
+	didPattern := regexp.MustCompile(`\{did-(\d+)\}`)
 	// Pattern to match {kp-N} where N is the keep duration in seconds
 	kpPattern := regexp.MustCompile(`\{kp-(\d+)\}`)
 	gen := &DynamicUsernameGenerator{
-		pattern:   pattern,
-		kpPattern: kpPattern,
-		cache:     make(map[string]*UsernameCache),
+		pattern:    pattern,
+		didPattern: didPattern,
+		kpPattern:  kpPattern,
+		cache:      make(map[string]*UsernameCache),
 	}
 
 	// Start background cleanup timer
@@ -86,7 +90,8 @@ func (g *DynamicUsernameGenerator) GenerateUsername(template string) string {
 
 // generateUsernameInternal generates username without caching logic
 func (g *DynamicUsernameGenerator) generateUsernameInternal(template string) string {
-	return g.pattern.ReplaceAllStringFunc(template, func(match string) string {
+	// First handle {sid-N} patterns (alphanumeric)
+	result := g.pattern.ReplaceAllStringFunc(template, func(match string) string {
 		// Extract the number from {sid-N}
 		matches := g.pattern.FindStringSubmatch(match)
 		if len(matches) != 2 {
@@ -100,6 +105,24 @@ func (g *DynamicUsernameGenerator) generateUsernameInternal(template string) str
 
 		return generateRandomString(length)
 	})
+
+	// Then handle {did-N} patterns (digits only)
+	result = g.didPattern.ReplaceAllStringFunc(result, func(match string) string {
+		// Extract the number from {did-N}
+		matches := g.didPattern.FindStringSubmatch(match)
+		if len(matches) != 2 {
+			return match // Return original if parsing fails
+		}
+
+		length, err := strconv.Atoi(matches[1])
+		if err != nil || length <= 0 {
+			return match // Return original if invalid length
+		}
+
+		return generateRandomDigits(length)
+	})
+
+	return result
 }
 
 // startCleanupTimer starts a background timer to periodically clean up expired cache entries
@@ -154,7 +177,25 @@ func (g *DynamicUsernameGenerator) GetCacheSize() int {
 
 // HasDynamicPattern checks if the username contains dynamic pattern
 func (g *DynamicUsernameGenerator) HasDynamicPattern(username string) bool {
-	return g.pattern.MatchString(username) || g.kpPattern.MatchString(username)
+	return g.pattern.MatchString(username) || g.didPattern.MatchString(username) || g.kpPattern.MatchString(username)
+}
+
+// generateRandomDigits generates a random numeric string of specified length
+func generateRandomDigits(length int) string {
+	const digits = "0123456789"
+	b := make([]byte, length)
+
+	// Use crypto/rand for secure random generation
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to a simple implementation if crypto/rand fails
+		return strings.Repeat("0", length)
+	}
+
+	for i := range b {
+		b[i] = digits[int(b[i])%len(digits)]
+	}
+
+	return string(b)
 }
 
 // generateRandomString generates a random alphanumeric string of specified length

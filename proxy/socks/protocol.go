@@ -3,7 +3,6 @@ package socks
 import (
 	"encoding/binary"
 	"io"
-	"log"
 
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/buf"
