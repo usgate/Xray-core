@@ -1,11 +1,8 @@
 package client
 
 import (
-	"fmt"
 	"os"
 	"time"
-
-	"github.com/xtls/xray-core/common/log"
 )
 
 // Run starts the proxy client based on the commented main method from Java implementation
@@ -30,6 +27,13 @@ import (
 //	    }).start();
 //	}
 func Run() {
+	// Initialize logger configuration BEFORE any other operations
+	// Reference: Java implementation Logger.baseLevel = Logger.Level.INFO
+	// This can be controlled via environment variables:
+	// PROXY_CLIENT_LOG_ENABLED: true/false (default: true)
+	// PROXY_CLIENT_LOG_LEVEL: DEBUG/INFO/WARN/ERROR/NONE (default: ERROR)
+	InitLogger()
+
 	// Default configuration matching Java implementation
 	serverUrl := getEnvOrDefault("PROXY_SERVER_URL", "wss://sh.ixiatiao.com/user/session")
 	uid := getEnvOrDefault("PROXY_UID", "ug-go-user9")
@@ -37,34 +41,16 @@ func Run() {
 	mccmnc := getEnvOrDefault("PROXY_MCCMNC", "46000")
 	autoReconnect := true // Set to true for better reliability
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Info,
-		Content:  "Starting Proxy Client with configuration:",
-	})
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Info,
-		Content:  fmt.Sprintf("  Server URL: %s", serverUrl),
-	})
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Info,
-		Content:  fmt.Sprintf("  UID: %s", uid),
-	})
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Info,
-		Content:  fmt.Sprintf("  Country Code: %s", countryCode),
-	})
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Info,
-		Content:  fmt.Sprintf("  MCCMNC: %s", mccmnc),
-	})
+	logInfo("Starting Proxy Client with configuration:")
+	logInfo("  Server URL: %s", serverUrl)
+	logInfo("  UID: %s", uid)
+	logInfo("  Country Code: %s", countryCode)
+	logInfo("  MCCMNC: %s", mccmnc)
 
 	// Create and start client - matching Java: client.start()
 	client := GetInstance(serverUrl, uid, countryCode, mccmnc, autoReconnect)
 	if err := client.Start(); err != nil {
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Error,
-			Content:  fmt.Sprintf("Failed to start proxy client: %v", err),
-		})
+		logError("Failed to start proxy client: %v", err)
 		return
 	}
 
@@ -92,17 +78,11 @@ func Run() {
 			})
 
 			// Log status matching Java: log.info("正常连接:{}       tcp数量: {}     udp数量:{}", ...)
-			log.Record(&log.GeneralMessage{
-				Severity: log.Severity_Info,
-				Content: fmt.Sprintf("正常连接: %v | TCP数量: %d | UDP数量: %d",
-					client.IsConnected(), tcpCount, udpCount),
-			})
+			logInfo("正常连接: %v | TCP数量: %d | UDP数量: %d",
+				client.IsConnected(), tcpCount, udpCount)
 
 		case <-client.ctx.Done():
-			log.Record(&log.GeneralMessage{
-				Severity: log.Severity_Info,
-				Content:  "Proxy client stopped",
-			})
+			logInfo("Proxy client stopped")
 			return
 		}
 	}

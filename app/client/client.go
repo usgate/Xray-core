@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/xtls/xray-core/common/log"
 )
 
 const (
@@ -115,17 +114,11 @@ func (c *ProxyClient) Start() error {
 	atomic.StoreInt32(&c.running, 1)
 	atomic.StoreInt32(&c.reconnecting, 0)
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Info,
-		Content:  fmt.Sprintf("Starting ProxyClient with UID: %s", c.uid),
-	})
+	logInfo("Starting ProxyClient with UID: %s", c.uid)
 
 	// Connect to server
 	if err := c.connectToServer(); err != nil {
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Error,
-			Content:  fmt.Sprintf("Failed to connect to server: %v", err),
-		})
+		logError("Failed to connect to server: %v", err)
 		if c.autoReconnect {
 			c.scheduleReconnect()
 		}
@@ -151,10 +144,7 @@ func (c *ProxyClient) Stop() error {
 		return nil
 	}
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Info,
-		Content:  "Stopping ProxyClient...",
-	})
+	logInfo("Stopping ProxyClient...")
 
 	atomic.StoreInt32(&c.running, 0)
 
@@ -188,10 +178,7 @@ func (c *ProxyClient) Stop() error {
 	c.cancel()
 	c.wg.Wait()
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Info,
-		Content:  "ProxyClient stopped",
-	})
+	logInfo("ProxyClient stopped")
 
 	return nil
 }
@@ -200,10 +187,7 @@ func (c *ProxyClient) Stop() error {
 func (c *ProxyClient) connectToServer() error {
 	url := fmt.Sprintf("%s?clientId=%s&tc=%s&tm=%s", c.serverURL, c.uid, c.countryCode, c.mccmnc)
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Debug,
-		Content:  fmt.Sprintf("Connecting to server: %s", url),
-	})
+	logDebug("Connecting to server: %s", url)
 
 	dialer := websocket.DefaultDialer
 	dialer.HandshakeTimeout = ConnectTimeout
@@ -217,10 +201,7 @@ func (c *ProxyClient) connectToServer() error {
 	c.wsConn = conn
 	c.wsConnMu.Unlock()
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Info,
-		Content:  "Connected to server successfully",
-	})
+	logInfo("Connected to server successfully")
 
 	// Start message handling
 	c.wg.Add(1)
@@ -245,10 +226,7 @@ func (c *ProxyClient) handleMessages() {
 
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
-			log.Record(&log.GeneralMessage{
-				Severity: log.Severity_Error,
-				Content:  fmt.Sprintf("WebSocket read error: %v", err),
-			})
+			logError("WebSocket read error: %v", err)
 
 			if atomic.LoadInt32(&c.running) == 1 && c.autoReconnect {
 				c.scheduleReconnect()
@@ -257,10 +235,7 @@ func (c *ProxyClient) handleMessages() {
 		}
 
 		if messageType == websocket.TextMessage {
-			log.Record(&log.GeneralMessage{
-				Severity: log.Severity_Info,
-				Content:  fmt.Sprintf("Received control message: %s", string(data)),
-			})
+			logInfo("Received control message: %s", string(data))
 			continue
 		}
 
@@ -280,10 +255,7 @@ func (c *ProxyClient) processProxyRequest(data []byte) {
 	sessionID := hex.EncodeToString(data[0:16])
 	commandType := data[16]
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Debug,
-		Content:  fmt.Sprintf("Processing request: sessionID=%s, command=%d", sessionID, commandType),
-	})
+	logDebug("Processing request: sessionID=%s, command=%d", sessionID, commandType)
 
 	switch commandType {
 	case CmdNewConnection:
@@ -299,10 +271,7 @@ func (c *ProxyClient) processProxyRequest(data []byte) {
 	case CmdCloseUDP:
 		c.handleCloseUDP(sessionID, false)
 	case CmdServerPush:
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Debug,
-			Content:  "Server push command (not implemented)",
-		})
+		logDebug("Server push command (not implemented)")
 	}
 }
 
@@ -324,10 +293,7 @@ func (c *ProxyClient) handleNewConnection(sessionID string, data []byte) {
 
 	port := binary.BigEndian.Uint32(data[4+hostLen : 4+hostLen+4])
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Debug,
-		Content:  fmt.Sprintf("Creating connection to %s:%d (session: %s)", host, port, sessionID),
-	})
+	logDebug("Creating connection to %s:%d (session: %s)", host, port, sessionID)
 
 	go c.createTCPConnection(sessionID, host, int(port))
 }
@@ -336,10 +302,7 @@ func (c *ProxyClient) handleNewConnection(sessionID string, data []byte) {
 func (c *ProxyClient) createTCPConnection(sessionID, host string, port int) {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), ConnectTimeout)
 	if err != nil {
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Error,
-			Content:  fmt.Sprintf("Failed to connect to %s:%d: %v", host, port, err),
-		})
+		logError("Failed to connect to %s:%d: %v", host, port, err)
 		c.closeTCPConnection(sessionID, true)
 		return
 	}
@@ -350,10 +313,7 @@ func (c *ProxyClient) createTCPConnection(sessionID, host string, port int) {
 	// Send connection success notification
 	c.sendCommand(sessionID, CmdConnected, nil)
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Info,
-		Content:  fmt.Sprintf("Connected to %s:%d (session: %s)", host, port, sessionID),
-	})
+	logInfo("Connected to %s:%d (session: %s)", host, port, sessionID)
 
 	// Start reading from target server
 	go c.readFromTarget(sessionID, conn, host, port)
@@ -366,10 +326,7 @@ func (c *ProxyClient) readFromTarget(sessionID string, conn net.Conn, host strin
 	for atomic.LoadInt32(&c.running) == 1 {
 		n, err := conn.Read(buffer)
 		if err != nil {
-			log.Record(&log.GeneralMessage{
-				Severity: log.Severity_Debug,
-				Content:  fmt.Sprintf("Connection closed: %s:%d (session: %s)", host, port, sessionID),
-			})
+			logDebug("Connection closed: %s:%d (session: %s)", host, port, sessionID)
 
 			// Send end of data notification
 			c.sendCommand(sessionID, CmdEndOfData, nil)
@@ -437,10 +394,7 @@ func (c *ProxyClient) sendChunkedData(sessionID string, data []byte) {
 	chunkCount := (totalSize + MaxChunkSize - 1) / MaxChunkSize
 
 	if chunkCount > 128 {
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Warning,
-			Content:  fmt.Sprintf("Data too large, chunk count exceeds 128: %d", chunkCount),
-		})
+		logWarn("Data too large, chunk count exceeds 128: %d", chunkCount)
 		return
 	}
 
@@ -463,20 +417,14 @@ func (c *ProxyClient) sendChunkedData(sessionID string, data []byte) {
 		chunkIndex++
 	}
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Debug,
-		Content:  fmt.Sprintf("Sent chunked data: %d bytes in %d chunks", totalSize, chunkCount),
-	})
+	logDebug("Sent chunked data: %d bytes in %d chunks", totalSize, chunkCount)
 }
 
 // handleDataForward handles incoming data to forward to target
 func (c *ProxyClient) handleDataForward(sessionID string, data []byte) {
 	value, ok := c.tcpChannels.Load(sessionID)
 	if !ok {
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Debug,
-			Content:  fmt.Sprintf("TCP channel not found: %s", sessionID),
-		})
+		logDebug("TCP channel not found: %s", sessionID)
 		return
 	}
 
@@ -488,10 +436,7 @@ func (c *ProxyClient) handleDataForward(sessionID string, data []byte) {
 
 	_, err := conn.Write(data)
 	if err != nil {
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Error,
-			Content:  fmt.Sprintf("Failed to write to target: %v", err),
-		})
+		logError("Failed to write to target: %v", err)
 		c.closeTCPConnection(sessionID, true)
 	}
 }
@@ -507,10 +452,7 @@ func (c *ProxyClient) closeTCPConnection(sessionID string, notifyServer bool) {
 	if ok {
 		conn := value.(net.Conn)
 		conn.Close()
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Debug,
-			Content:  fmt.Sprintf("Closed TCP connection: %s", sessionID),
-		})
+		logDebug("Closed TCP connection: %s", sessionID)
 	}
 
 	c.tcpActiveTime.Delete(sessionID)
@@ -552,10 +494,7 @@ func (c *ProxyClient) handleUDPData(sessionID string, data []byte) {
 
 	c.updateUDPActiveTime(sessionID)
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Debug,
-		Content:  fmt.Sprintf("Handling UDP data: %s:%d (session: %s)", targetHost, targetPort, sessionID),
-	})
+	logDebug("Handling UDP data: %s:%d (session: %s)", targetHost, targetPort, sessionID)
 
 	go c.sendUDPData(sessionID, targetHost, int(targetPort), udpData)
 }
@@ -569,20 +508,14 @@ func (c *ProxyClient) sendUDPData(sessionID, targetHost string, targetPort int, 
 		// Create new UDP connection
 		udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", targetHost, targetPort))
 		if err != nil {
-			log.Record(&log.GeneralMessage{
-				Severity: log.Severity_Error,
-				Content:  fmt.Sprintf("Failed to resolve UDP address: %v", err),
-			})
+			logError("Failed to resolve UDP address: %v", err)
 			c.closeUDPConnection(sessionID, true)
 			return
 		}
 
 		conn, err = net.DialUDP("udp", nil, udpAddr)
 		if err != nil {
-			log.Record(&log.GeneralMessage{
-				Severity: log.Severity_Error,
-				Content:  fmt.Sprintf("Failed to create UDP connection: %v", err),
-			})
+			logError("Failed to create UDP connection: %v", err)
 			c.closeUDPConnection(sessionID, true)
 			return
 		}
@@ -598,18 +531,12 @@ func (c *ProxyClient) sendUDPData(sessionID, targetHost string, targetPort int, 
 	// Send UDP data
 	_, err := conn.Write(data)
 	if err != nil {
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Error,
-			Content:  fmt.Sprintf("Failed to send UDP data: %v", err),
-		})
+		logError("Failed to send UDP data: %v", err)
 		c.closeUDPConnection(sessionID, true)
 		return
 	}
 
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Debug,
-		Content:  fmt.Sprintf("Sent UDP data: %d bytes (session: %s)", len(data), sessionID),
-	})
+	logDebug("Sent UDP data: %d bytes (session: %s)", len(data), sessionID)
 }
 
 // readUDPResponses reads UDP responses and forwards to WebSocket
@@ -622,10 +549,7 @@ func (c *ProxyClient) readUDPResponses(sessionID string, conn *net.UDPConn) {
 		n, err := conn.Read(buffer)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				log.Record(&log.GeneralMessage{
-					Severity: log.Severity_Debug,
-					Content:  fmt.Sprintf("UDP read timeout (session: %s)", sessionID),
-				})
+				logDebug("UDP read timeout (session: %s)", sessionID)
 			}
 			c.closeUDPConnection(sessionID, true)
 			return
@@ -682,10 +606,7 @@ func (c *ProxyClient) closeUDPConnection(sessionID string, notifyServer bool) {
 	if ok {
 		conn := value.(*net.UDPConn)
 		conn.Close()
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Debug,
-			Content:  fmt.Sprintf("Closed UDP connection: %s", sessionID),
-		})
+		logDebug("Closed UDP connection: %s", sessionID)
 	}
 
 	c.udpActiveTime.Delete(sessionID)
@@ -697,10 +618,7 @@ func (c *ProxyClient) closeUDPConnection(sessionID string, notifyServer bool) {
 
 // handleReadSMS handles read SMS command (not fully implemented)
 func (c *ProxyClient) handleReadSMS(sessionID string) {
-	log.Record(&log.GeneralMessage{
-		Severity: log.Severity_Info,
-		Content:  fmt.Sprintf("Read SMS request (session: %s)", sessionID),
-	})
+	logInfo("Read SMS request (session: %s)", sessionID)
 
 	// Send empty SMS response
 	c.sendCommand(sessionID, CmdReadSMS, []byte{})
@@ -746,10 +664,7 @@ func (c *ProxyClient) wsSend(data []byte) bool {
 
 	err := conn.WriteMessage(websocket.BinaryMessage, data)
 	if err != nil {
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Error,
-			Content:  fmt.Sprintf("WebSocket write error: %v", err),
-		})
+		logError("WebSocket write error: %v", err)
 
 		if c.autoReconnect && atomic.LoadInt32(&c.running) == 1 {
 			c.scheduleReconnect()
@@ -848,10 +763,7 @@ func (c *ProxyClient) cleanupInactiveConnections() {
 	})
 
 	if closedTCP > 0 || closedUDP > 0 {
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Info,
-			Content:  fmt.Sprintf("Cleaned up %d inactive TCP and %d inactive UDP connections", closedTCP, closedUDP),
-		})
+		logInfo("Cleaned up %d inactive TCP and %d inactive UDP connections", closedTCP, closedUDP)
 	}
 }
 
@@ -864,10 +776,7 @@ func (c *ProxyClient) scheduleReconnect() {
 	go func() {
 		defer atomic.StoreInt32(&c.reconnecting, 0)
 
-		log.Record(&log.GeneralMessage{
-			Severity: log.Severity_Info,
-			Content:  fmt.Sprintf("Scheduling reconnect in %v...", ReconnectDelay),
-		})
+		logInfo("Scheduling reconnect in %v...", ReconnectDelay)
 
 		time.Sleep(ReconnectDelay)
 
@@ -883,10 +792,7 @@ func (c *ProxyClient) scheduleReconnect() {
 		c.wsConnMu.Unlock()
 
 		if err := c.connectToServer(); err != nil {
-			log.Record(&log.GeneralMessage{
-				Severity: log.Severity_Error,
-				Content:  fmt.Sprintf("Reconnect failed: %v", err),
-			})
+			logError("Reconnect failed: %v", err)
 
 			if c.autoReconnect {
 				c.scheduleReconnect()
