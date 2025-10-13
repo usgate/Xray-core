@@ -1,6 +1,7 @@
 package socks
 
 import (
+	"context"
 	"encoding/binary"
 	"io"
 	//"log"
@@ -414,7 +415,7 @@ func (w *UDPWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
 	return nil
 }
 
-func ClientHandshake(request *protocol.RequestHeader, reader io.Reader, writer io.Writer) (*protocol.RequestHeader, error) {
+func ClientHandshake(ctx context.Context, request *protocol.RequestHeader, reader io.Reader, writer io.Writer) (*protocol.RequestHeader, error) {
 	authByte := byte(authNotRequired)
 	if request.User != nil {
 		authByte = byte(authPassword)
@@ -443,8 +444,8 @@ func ClientHandshake(request *protocol.RequestHeader, reader io.Reader, writer i
 	if authByte == authPassword {
 		b.Clear()
 		account := request.User.Account.(*Account)
-		// Use dynamic username generation for each request
-		effectiveUsername := account.GetEffectiveUsername()
+		// Use dynamic username generation with context for IP-based generation
+		effectiveUsername := account.GetEffectiveUsernameWithContext(ctx)
 		//log.Println("socks Effective username: ", effectiveUsername)
 		common.Must(b.WriteByte(0x01))
 		common.Must(b.WriteByte(byte(len(effectiveUsername))))

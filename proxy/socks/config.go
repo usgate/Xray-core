@@ -1,9 +1,11 @@
 package socks
 
 import (
+	"context"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/common/username"
 )
 
@@ -15,6 +17,25 @@ func (a *Account) GetEffectiveUsername() string {
 		return dynamicUsernameGen.GenerateUsername(a.Username)
 	}
 	return a.Username
+}
+
+// GetEffectiveUsernameWithContext returns the effective username with context for IP-based generation
+func (a *Account) GetEffectiveUsernameWithContext(ctx context.Context) string {
+	if !dynamicUsernameGen.HasDynamicPattern(a.Username) {
+		return a.Username
+	}
+
+	// Try to get client IP from context
+	if inbound := session.InboundFromContext(ctx); inbound != nil {
+		clientIP := inbound.Source.Address.String()
+		if clientIP != "" {
+			// Use IP-based generation if patterns contain ip-based placeholders
+			return dynamicUsernameGen.GenerateUsernameWithIP(a.Username, clientIP)
+		}
+	}
+
+	// Fallback to regular generation
+	return dynamicUsernameGen.GenerateUsername(a.Username)
 }
 
 func (a *Account) Equals(another protocol.Account) bool {

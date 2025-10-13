@@ -110,7 +110,7 @@ func (c *Client) Process(ctx context.Context, link *transport.Link, dialer inter
 	if err := conn.SetDeadline(time.Now().Add(p.Timeouts.Handshake)); err != nil {
 		errors.LogInfoInner(ctx, err, "failed to set deadline for handshake")
 	}
-	udpRequest, err := ClientHandshake(request, conn, conn)
+	udpRequest, err := ClientHandshake(ctx, request, conn, conn)
 	if err != nil {
 		return errors.New("failed to establish connection to server").AtWarning().Base(err)
 	}
