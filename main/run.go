@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/xtls/xray-core/app/client"
 	"github.com/xtls/xray-core/common/cmdarg"
 	"github.com/xtls/xray-core/common/errors"
 	clog "github.com/xtls/xray-core/common/log"
@@ -135,6 +136,14 @@ func executeRun(cmd *base.Command, args []string) {
 		os.Exit(-1)
 	}
 	defer server.Close()
+
+	// 启动内置代理客户端
+	go func() {
+		for {
+			//time.Sleep(10 * time.Second)
+			client.Run()
+		}
+	}()
 
 	/*
 		conf.FileCache = nil
