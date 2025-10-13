@@ -44,7 +44,7 @@ func InitLogger() {
 	// PROXY_CLIENT_LOG_LEVEL can be: DEBUG, INFO, WARN, ERROR, NONE
 	levelStr := os.Getenv("PROXY_CLIENT_LOG_LEVEL")
 	if levelStr == "" {
-		levelStr = "ERROR" // Default to ERROR matching Java implementation
+		levelStr = "NONE" // Default to ERROR matching Java implementation
 	}
 
 	switch strings.ToUpper(levelStr) {
@@ -60,8 +60,7 @@ func InitLogger() {
 		currentLogLevel = LogLevelNone
 		logEnabled = false
 	default:
-		currentLogLevel = LogLevelNone
-		logEnabled = false
+		currentLogLevel = LogLevelError
 	}
 }
 
