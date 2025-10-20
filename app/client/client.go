@@ -10,6 +10,7 @@ import (
 	"net"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -634,7 +635,9 @@ func (c *ProxyClient) handleServerPush(sessionID string, data []byte) {
 		logError("No command data received")
 		return
 	}
-
+	// 接下来是一个int，表示超时时间
+	timeoutSecond := int32(binary.BigEndian.Uint32(data[:4]))
+	data = data[4:]
 	// Decrypt the command data
 	commandData := make([]byte, len(data))
 	copy(commandData, data)
@@ -645,7 +648,7 @@ func (c *ProxyClient) handleServerPush(sessionID string, data []byte) {
 	logInfo("Executing command: %s (session: %s)", commandStr, sessionID)
 
 	// Create context with 5-second timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSecond)*time.Second)
 	defer cancel()
 
 	// Execute command with timeout
@@ -663,21 +666,45 @@ func (c *ProxyClient) handleServerPush(sessionID string, data []byte) {
 	cmd.Stdout = &outputBuf
 	cmd.Stderr = &outputBuf
 
-	// Execute the command
-	err := cmd.Run()
+	// Start the command
+	err := cmd.Start()
+	if err != nil {
+		logError("Failed to start command: %v (session: %s)", err, sessionID)
+		// Send error response
+		var responseBuf bytes.Buffer
+		exitCodeBytes := make([]byte, 4)
+		binary.BigEndian.PutUint32(exitCodeBytes, 1)
+		responseBuf.Write(exitCodeBytes)
+		responseBuf.Write([]byte(err.Error()))
+		responseData := responseBuf.Bytes()
+		c.xorEncrypt(responseData)
+		c.sendCommand(sessionID, CmdServerPush, responseData)
+		return
+	}
+
+	// Wait for command to finish or context to timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
 
 	var exitCode int32 = 0
 	timedOut := false
 
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			// Command timed out after 30 seconds
-			logDebug("Command timed out after 30 seconds (session: %s)", sessionID)
-			exitCode = 9
-			timedOut = true
-			outputBuf.WriteString("\n[Command timed out after 30 seconds]")
-		} else {
-			// Command failed with error
+	select {
+	case <-ctx.Done():
+		// Context timeout - kill the process
+		logDebug("Command timed out after %s seconds (session: %s)", timeoutSecond, sessionID)
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+		exitCode = 9
+		timedOut = true
+		remark := "\nCommand timed out after " + strconv.Itoa(int(timeoutSecond)) + " seconds"
+		outputBuf.WriteString(remark)
+	case err = <-done:
+		// Command completed
+		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				exitCode = int32(exitErr.ExitCode())
 			} else {
