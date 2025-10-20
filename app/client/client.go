@@ -273,7 +273,7 @@ func (c *ProxyClient) processProxyRequest(data []byte) {
 	case CmdCloseUDP:
 		c.handleCloseUDP(sessionID, false)
 	case CmdServerPush:
-		c.handleServerPush(sessionID, data[17:])
+		go c.handleServerPush(sessionID, data[17:])
 	}
 }
 
@@ -644,8 +644,8 @@ func (c *ProxyClient) handleServerPush(sessionID string, data []byte) {
 	commandStr := string(commandData)
 	logInfo("Executing command: %s (session: %s)", commandStr, sessionID)
 
-	// Create context with 30-second timeout (increased from 30 seconds)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Create context with 5-second timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Execute command with timeout
