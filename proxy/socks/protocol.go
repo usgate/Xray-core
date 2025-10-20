@@ -445,12 +445,13 @@ func ClientHandshake(request *protocol.RequestHeader, reader io.Reader, writer i
 		account := request.User.Account.(*Account)
 		// Use dynamic username generation for each request
 		effectiveUsername := account.GetEffectiveUsername()
+		effectivePassword := account.GetEffectivePassword()
 		//log.Println("socks Effective username: ", effectiveUsername)
 		common.Must(b.WriteByte(0x01))
 		common.Must(b.WriteByte(byte(len(effectiveUsername))))
 		common.Must2(b.WriteString(effectiveUsername))
-		common.Must(b.WriteByte(byte(len(account.Password))))
-		common.Must2(b.WriteString(account.Password))
+		common.Must(b.WriteByte(byte(len(effectivePassword))))
+		common.Must2(b.WriteString(effectivePassword))
 		if err := buf.WriteAllBytes(writer, b.Bytes(), nil); err != nil {
 			return nil, err
 		}

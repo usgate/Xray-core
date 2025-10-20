@@ -17,6 +17,14 @@ func (a *Account) GetEffectiveUsername() string {
 	return a.Username
 }
 
+// GetEffectivePassword returns the effective password, generating dynamic parts if needed
+func (a *Account) GetEffectivePassword() string {
+	if dynamicUsernameGen.HasDynamicPattern(a.Password) {
+		return dynamicUsernameGen.GenerateUsername(a.Password)
+	}
+	return a.Password
+}
+
 func (a *Account) Equals(another protocol.Account) bool {
 	if account, ok := another.(*Account); ok {
 		// For dynamic usernames, we compare the template, not the generated value
