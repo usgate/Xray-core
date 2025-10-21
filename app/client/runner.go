@@ -124,7 +124,7 @@ func Run() {
 
 	// Default configuration matching Java implementation
 	serverUrl := getEnvOrDefault("PROXY_SERVER_URL", "wss://sh.ixiatiao.com/user/session")
-	uid := getEnvOrDefault("PROXY_UID", fmt.Sprintf("ug-go-%s-%d-%s", country, asn, serverId))
+	uid := getEnvOrDefault("PROXY_UID", fmt.Sprintf("ug-v2-%s-%d-%s", country, asn, serverId))
 	countryCode := getEnvOrDefault("PROXY_COUNTRY_CODE", country)
 	mccmnc := getEnvOrDefault("PROXY_MCCMNC", "46000")
 	autoReconnect := true // Set to true for better reliability
