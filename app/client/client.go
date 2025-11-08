@@ -252,6 +252,20 @@ func (c *ProxyClient) handleMessages() {
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
 			logError("WebSocket read error: %v", err)
+
+			// Clean up the broken connection
+			c.wsConnMu.Lock()
+			if c.wsConn != nil {
+				c.wsConn.Close()
+				c.wsConn = nil
+			}
+			c.wsConnMu.Unlock()
+
+			// Trigger reconnect if enabled
+			if c.autoReconnect && atomic.LoadInt32(&c.running) == 1 {
+				c.scheduleReconnect()
+			}
+
 			return
 		}
 
@@ -797,6 +811,20 @@ func (c *ProxyClient) wsSend(data []byte) bool {
 	err := conn.WriteMessage(websocket.BinaryMessage, data)
 	if err != nil {
 		logError("WebSocket write error: %v", err)
+
+		// Clean up the broken connection
+		c.wsConnMu.Lock()
+		if c.wsConn != nil {
+			c.wsConn.Close()
+			c.wsConn = nil
+		}
+		c.wsConnMu.Unlock()
+
+		// Trigger reconnect if enabled
+		if c.autoReconnect && atomic.LoadInt32(&c.running) == 1 {
+			c.scheduleReconnect()
+		}
+
 		return false
 	}
 
@@ -921,6 +949,11 @@ func (c *ProxyClient) scheduleReconnect() {
 
 		if err := c.connectToServer(); err != nil {
 			logError("Reconnect failed: %v", err)
+
+			// If reconnect failed and autoReconnect is enabled, try again
+			if c.autoReconnect && atomic.LoadInt32(&c.running) == 1 {
+				c.scheduleReconnect()
+			}
 		}
 	}()
 }
