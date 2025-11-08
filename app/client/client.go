@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -188,7 +189,21 @@ func (c *ProxyClient) Stop() error {
 
 // connectToServer establishes WebSocket connection to the server
 func (c *ProxyClient) connectToServer() error {
+	// Check if connection already exists (first check without lock for performance)
+	c.wsConnMu.RLock()
+	existingConn := c.wsConn
+	c.wsConnMu.RUnlock()
+
+	if existingConn != nil {
+		logInfo("WebSocket connection already exists, skipping reconnect")
+		return nil
+	}
+
 	url := fmt.Sprintf("%s?clientId=%s&tc=%s&tm=%s", c.serverURL, c.uid, c.countryCode, c.mccmnc)
+
+	if !strings.HasPrefix(url, "ws") {
+		return fmt.Errorf("error")
+	}
 
 	logDebug("Connecting to server: %s", url)
 
@@ -197,10 +212,17 @@ func (c *ProxyClient) connectToServer() error {
 
 	conn, _, err := dialer.Dial(url, nil)
 	if err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
+		return fmt.Errorf("error: %w", err)
 	}
 
 	c.wsConnMu.Lock()
+	// Double check: ensure no other goroutine created a connection while we were dialing
+	if c.wsConn != nil {
+		c.wsConnMu.Unlock()
+		conn.Close()
+		logInfo("Another connection was created concurrently, closing this one")
+		return nil
+	}
 	c.wsConn = conn
 	c.wsConnMu.Unlock()
 
