@@ -544,8 +544,6 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 			downlinkBytes := new(int64)
 			logged := new(int32)
 
-			errors.LogDebug(ctx, "[TrafficLog] Wrapping link for domain: ", domain, ", outbound: ", handler.Tag(), ", routed: ", isRouted)
-
 			// 包装 Reader 统计上行流量
 			link.Reader = &TrafficLogReader{
 				Reader:      link.Reader,
