@@ -94,11 +94,12 @@ func (r *cachedReader) Interrupt() {
 
 // DefaultDispatcher is a default implementation of Dispatcher.
 type DefaultDispatcher struct {
-	ohm    outbound.Manager
-	router routing.Router
-	policy policy.Manager
-	stats  stats.Manager
-	fdns   dns.FakeDNSEngine
+	ohm              outbound.Manager
+	router           routing.Router
+	policy           policy.Manager
+	stats            stats.Manager
+	fdns             dns.FakeDNSEngine
+	enableTrafficLog bool
 }
 
 func init() {
@@ -122,6 +123,11 @@ func (d *DefaultDispatcher) Init(config *Config, om outbound.Manager, router rou
 	d.router = router
 	d.policy = pm
 	d.stats = sm
+	// 默认开启流量日志，除非配置中明确禁用
+	d.enableTrafficLog = true
+	if config != nil && config.GetDisableTrafficLog() {
+		d.enableTrafficLog = false
+	}
 	return nil
 }
 
@@ -514,6 +520,50 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 			}
 		}
 		log.Record(accessMessage)
+	}
+
+	// 包装 link 以支持域名流量统计（仅 TCP 连接）
+	if d.enableTrafficLog && destination.Network == net.Network_TCP {
+		var domain string
+		// 优先使用 RouteTarget 的域名（如果设置了）
+		if ob.RouteTarget.IsValid() && ob.RouteTarget.Address.Family().IsDomain() {
+			domain = ob.RouteTarget.Address.Domain()
+		} else if ob.Target.Address.Family().IsDomain() {
+			domain = ob.Target.Address.Domain()
+		}
+
+		// 只有当目标是域名时才包装 link
+		if domain != "" {
+			// 判断是否走分流：
+			// isPickRoute == 2 表示通过路由规则匹配（分流）
+			// isPickRoute == 0 或 1 表示未匹配路由规则或强制指定（不算分流）
+			isRouted := (isPickRoute == 2)
+
+			// 创建共享的流量计数器
+			uplinkBytes := new(int64)
+			downlinkBytes := new(int64)
+			logged := new(int32)
+
+			errors.LogDebug(ctx, "[TrafficLog] Wrapping link for domain: ", domain, ", outbound: ", handler.Tag(), ", routed: ", isRouted)
+
+			// 包装 Reader 统计上行流量
+			link.Reader = &TrafficLogReader{
+				Reader:      link.Reader,
+				uplinkBytes: uplinkBytes,
+			}
+
+			// 包装 Writer 统计下行流量，并在连接关闭时输出日志
+			link.Writer = &TrafficLogWriter{
+				Writer:        link.Writer,
+				ctx:           ctx,
+				domain:        domain,
+				outboundTag:   handler.Tag(),
+				isRouted:      isRouted,
+				downlinkBytes: downlinkBytes,
+				uplinkBytes:   uplinkBytes,
+				logged:        logged,
+			}
+		}
 	}
 
 	handler.Dispatch(ctx, link)

@@ -12,4 +12,7 @@ message SessionConfig {
 
 message Config {
   SessionConfig settings = 1;
+  // 默认为 true（开启），设置为 false 可关闭
+  // 由于 protobuf bool 默认为 false，这里用反向逻辑
+  bool disable_traffic_log = 2;
 }

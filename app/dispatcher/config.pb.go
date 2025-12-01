@@ -61,7 +61,8 @@ type Config struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Settings *SessionConfig `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
+	Settings          *SessionConfig `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
+	DisableTrafficLog bool           `protobuf:"varint,2,opt,name=disable_traffic_log,json=disableTrafficLog,proto3" json:"disable_traffic_log,omitempty"`
 }
 
 func (x *Config) Reset() {
@@ -99,6 +100,13 @@ func (x *Config) GetSettings() *SessionConfig {
 		return x.Settings
 	}
 	return nil
+}
+
+func (x *Config) GetDisableTrafficLog() bool {
+	if x != nil {
+		return x.DisableTrafficLog
+	}
+	return false
 }
 
 var File_app_dispatcher_config_proto protoreflect.FileDescriptor
