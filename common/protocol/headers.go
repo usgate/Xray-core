@@ -5,7 +5,6 @@ import (
 
 	"github.com/xtls/xray-core/common/bitmask"
 	"github.com/xtls/xray-core/common/net"
-	"github.com/xtls/xray-core/common/uuid"
 	"golang.org/x/sys/cpu"
 )
 
@@ -16,11 +15,12 @@ const (
 	RequestCommandTCP = RequestCommand(0x01)
 	RequestCommandUDP = RequestCommand(0x02)
 	RequestCommandMux = RequestCommand(0x03)
+	RequestCommandRvs = RequestCommand(0x04)
 )
 
 func (c RequestCommand) TransferType() TransferType {
 	switch c {
-	case RequestCommandTCP, RequestCommandMux:
+	case RequestCommandTCP, RequestCommandMux, RequestCommandRvs:
 		return TransferTypeStream
 	case RequestCommandUDP:
 		return TransferTypePacket
@@ -70,18 +70,10 @@ type ResponseHeader struct {
 	Command ResponseCommand
 }
 
-type CommandSwitchAccount struct {
-	Host     net.Address
-	Port     net.Port
-	ID       uuid.UUID
-	Level    uint32
-	ValidMin byte
-}
-
 var (
 	// Keep in sync with crypto/tls/cipher_suites.go.
 	hasGCMAsmAMD64 = cpu.X86.HasAES && cpu.X86.HasPCLMULQDQ && cpu.X86.HasSSE41 && cpu.X86.HasSSSE3
-	hasGCMAsmARM64 = cpu.ARM64.HasAES && cpu.ARM64.HasPMULL
+	hasGCMAsmARM64 = (cpu.ARM64.HasAES && cpu.ARM64.HasPMULL) || (runtime.GOOS == "darwin" && runtime.GOARCH == "arm64")
 	hasGCMAsmS390X = cpu.S390X.HasAES && cpu.S390X.HasAESCTR && cpu.S390X.HasGHASH
 	hasGCMAsmPPC64 = runtime.GOARCH == "ppc64" || runtime.GOARCH == "ppc64le"
 

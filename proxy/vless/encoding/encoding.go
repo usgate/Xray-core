@@ -10,6 +10,7 @@ import (
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/common/signal"
+	"github.com/xtls/xray-core/common/uuid"
 	"github.com/xtls/xray-core/proxy"
 	"github.com/xtls/xray-core/proxy/vless"
 )
@@ -46,7 +47,7 @@ func EncodeRequestHeader(writer io.Writer, request *protocol.RequestHeader, requ
 		return errors.New("failed to write request command").Base(err)
 	}
 
-	if request.Command != protocol.RequestCommandMux {
+	if request.Command != protocol.RequestCommandMux && request.Command != protocol.RequestCommandRvs {
 		if err := addrParser.WriteAddressPort(&buffer, request.Address, request.Port); err != nil {
 			return errors.New("failed to write request address and port").Base(err)
 		}
@@ -91,7 +92,8 @@ func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validat
 		}
 
 		if request.User = validator.Get(id); request.User == nil {
-			return nil, nil, nil, isfb, errors.New("invalid request user id")
+			u := uuid.UUID(id)
+			return nil, nil, nil, isfb, errors.New("invalid request user id: " + u.String())
 		}
 
 		if isfb {
@@ -112,7 +114,8 @@ func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validat
 		switch request.Command {
 		case protocol.RequestCommandMux:
 			request.Address = net.DomainAddress("v1.mux.cool")
-			request.Port = 0
+		case protocol.RequestCommandRvs:
+			request.Address = net.DomainAddress("v1.rvs.cool")
 		case protocol.RequestCommandTCP, protocol.RequestCommandUDP:
 			if addr, port, err := addrParser.ReadAddressPort(&buffer, reader); err == nil {
 				request.Address = addr

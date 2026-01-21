@@ -83,8 +83,6 @@ func (c *RouterConfig) getDomainStrategy() router.Config_DomainStrategy {
 	}
 
 	switch strings.ToLower(ds) {
-	case "alwaysip":
-		return router.Config_UseIp
 	case "ipifnonmatch":
 		return router.Config_IpIfNonMatch
 	case "ipondemand":
@@ -537,6 +535,7 @@ func parseFieldRule(msg json.RawMessage) (*router.RoutingRule, error) {
 		Attributes map[string]string `json:"attrs"`
 		LocalIP    *StringList       `json:"localIP"`
 		LocalPort  *PortList         `json:"localPort"`
+		Process    *StringList       `json:"process"`
 	}
 	rawFieldRule := new(RawFieldRule)
 	err := json.Unmarshal(msg, rawFieldRule)
@@ -647,6 +646,10 @@ func parseFieldRule(msg json.RawMessage) (*router.RoutingRule, error) {
 
 	if len(rawFieldRule.Attributes) > 0 {
 		rule.Attributes = rawFieldRule.Attributes
+	}
+
+	if rawFieldRule.Process != nil && len(*rawFieldRule.Process) > 0 {
+		rule.Process = *rawFieldRule.Process
 	}
 
 	return rule, nil
