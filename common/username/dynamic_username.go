@@ -21,6 +21,7 @@ type DynamicUsernameGenerator struct {
 	didPattern *regexp.Regexp // {did-N} pattern for digits only
 	kpPattern  *regexp.Regexp // {kp-N} pattern for keep-alive
 	cache      map[string]*UsernameCache
+	boundCache map[string]string
 	mutex      sync.RWMutex
 }
 
@@ -37,6 +38,7 @@ func NewDynamicUsernameGenerator() *DynamicUsernameGenerator {
 		didPattern: didPattern,
 		kpPattern:  kpPattern,
 		cache:      make(map[string]*UsernameCache),
+		boundCache: make(map[string]string),
 	}
 
 	// Start background cleanup timer
@@ -86,6 +88,39 @@ func (g *DynamicUsernameGenerator) GenerateUsername(template string) string {
 
 	// No keep-alive pattern, generate username directly
 	return g.generateUsernameInternal(template)
+}
+
+// GenerateBoundUsername generates a stable dynamic username for the given binding key.
+// This is used when the caller needs the same {sid-N}/{did-N} expansion to be reused
+// for repeated requests that share the same binding key, such as a client source IP.
+func (g *DynamicUsernameGenerator) GenerateBoundUsername(template, bindingKey string) string {
+	if bindingKey == "" || !g.HasBoundDynamicPattern(template) {
+		return g.GenerateUsername(template)
+	}
+
+	// User-bound credentials pin the generated identifier to the binding key, so {kp-N}
+	// should not force the value to rotate while the binding is still active.
+	baseTemplate := g.kpPattern.ReplaceAllString(template, "")
+	cacheKey := bindingKey + "\x00" + baseTemplate
+
+	g.mutex.RLock()
+	cached, exists := g.boundCache[cacheKey]
+	g.mutex.RUnlock()
+	if exists {
+		return cached
+	}
+
+	username := g.generateUsernameInternal(baseTemplate)
+
+	g.mutex.Lock()
+	if cached, exists := g.boundCache[cacheKey]; exists {
+		username = cached
+	} else {
+		g.boundCache[cacheKey] = username
+	}
+	g.mutex.Unlock()
+
+	return username
 }
 
 // generateUsernameInternal generates username without caching logic
@@ -178,6 +213,11 @@ func (g *DynamicUsernameGenerator) GetCacheSize() int {
 // HasDynamicPattern checks if the username contains dynamic pattern
 func (g *DynamicUsernameGenerator) HasDynamicPattern(username string) bool {
 	return g.pattern.MatchString(username) || g.didPattern.MatchString(username) || g.kpPattern.MatchString(username)
+}
+
+// HasBoundDynamicPattern checks whether the template contains a bindable dynamic identifier.
+func (g *DynamicUsernameGenerator) HasBoundDynamicPattern(username string) bool {
+	return g.pattern.MatchString(username) || g.didPattern.MatchString(username)
 }
 
 // generateRandomDigits generates a random numeric string of specified length

@@ -26,6 +26,48 @@ type Client struct {
 	policyManager policy.Manager
 }
 
+func resolveUserBoundUser(ctx context.Context, user *protocol.MemoryUser, outbound *session.Outbound, server *protocol.ServerSpec) *protocol.MemoryUser {
+	if user == nil {
+		return nil
+	}
+
+	inbound := session.InboundFromContext(ctx)
+	if inbound == nil || inbound.Tag != "user_bind" {
+		return user
+	}
+	if !inbound.Source.IsValid() || !inbound.Source.Address.Family().IsIP() {
+		return user
+	}
+
+	account, ok := user.Account.(*Account)
+	if !ok {
+		return user
+	}
+	if !dynamicUsernameGen.HasBoundDynamicPattern(account.Username) && !dynamicUsernameGen.HasBoundDynamicPattern(account.Password) {
+		return user
+	}
+
+	bindingKey := inbound.Source.Address.String()
+	switch {
+	case outbound != nil && outbound.Tag != "":
+		bindingKey += "|" + outbound.Tag
+	case server != nil:
+		bindingKey += "|" + server.Destination.String()
+	}
+
+	clonedUser := *user
+	clonedAccount := *account
+	if dynamicUsernameGen.HasBoundDynamicPattern(clonedAccount.Username) {
+		clonedAccount.Username = dynamicUsernameGen.GenerateBoundUsername(clonedAccount.Username, bindingKey)
+	}
+	if dynamicUsernameGen.HasBoundDynamicPattern(clonedAccount.Password) {
+		clonedAccount.Password = dynamicUsernameGen.GenerateBoundUsername(clonedAccount.Password, bindingKey)
+	}
+	clonedUser.Account = &clonedAccount
+
+	return &clonedUser
+}
+
 // NewClient create a new Socks5 client based on the given config.
 func NewClient(ctx context.Context, config *ClientConfig) (*Client, error) {
 	if config.Server == nil {
@@ -96,6 +138,7 @@ func (c *Client) Process(ctx context.Context, link *transport.Link, dialer inter
 
 	user := server.User
 	if user != nil {
+		user = resolveUserBoundUser(ctx, user, ob, server)
 		request.User = user
 		p = c.policyManager.ForLevel(user.Level)
 	}
