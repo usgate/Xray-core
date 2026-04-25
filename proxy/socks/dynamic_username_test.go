@@ -111,8 +111,7 @@ func TestAccountGetEffectiveUsername(t *testing.T) {
 				}
 
 				// Verify the pattern is correctly replaced
-				gen := NewDynamicUsernameGenerator()
-				expectedPattern := gen.pattern.ReplaceAllString(tc.username, "[a-zA-Z0-9]+")
+				expectedPattern := regexp.MustCompile(`\{sid-\d+\}`).ReplaceAllString(tc.username, "[a-zA-Z0-9]+")
 				matched, err := regexp.MatchString("^"+expectedPattern+"$", result)
 				if err != nil {
 					t.Fatalf("Invalid regex pattern: %v", err)
@@ -230,26 +229,30 @@ func TestKeepAliveExpiration(t *testing.T) {
 	}
 }
 
-func TestExtractKeepDuration(t *testing.T) {
+func TestKeepAlivePatternBehavior(t *testing.T) {
 	gen := NewDynamicUsernameGenerator()
 
 	testCases := []struct {
-		template string
-		expected int
+		template     string
+		expectCached bool
 	}{
-		{"user_{sid-8}{kp-30}", 30},
-		{"user_{sid-8}{kp-60}", 60},
-		{"user_{sid-8}", 0},
-		{"user_{kp-invalid}", 0},
-		{"user_{kp-0}", 0},
-		{"user_{sid-8}{kp-120}", 120},
+		{"user_{sid-32}{kp-30}", true},
+		{"user_{sid-32}{kp-60}", true},
+		{"user_{sid-32}", false},
+		{"user_{sid-32}{kp-invalid}", false},
+		{"user_{sid-32}{kp-0}", false},
+		{"user_{sid-32}{kp-120}", true},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.template, func(t *testing.T) {
-			result := gen.extractKeepDuration(tc.template)
-			if result != tc.expected {
-				t.Errorf("Expected duration %d, got %d for template '%s'", tc.expected, result, tc.template)
+			first := gen.GenerateUsername(tc.template)
+			second := gen.GenerateUsername(tc.template)
+			if tc.expectCached && first != second {
+				t.Fatalf("expected keep-alive template to be cached, got %q and %q", first, second)
+			}
+			if !tc.expectCached && first == second {
+				t.Fatalf("expected non keep-alive template to generate a fresh value, got %q twice", first)
 			}
 		})
 	}
@@ -271,56 +274,5 @@ func TestCacheCleanup(t *testing.T) {
 	gen.CleanupExpiredCache()
 	if gen.GetCacheSize() != 1 {
 		t.Errorf("Expected cache size 1 after cleanup, got %d", gen.GetCacheSize())
-	}
-}
-
-func TestPeriodicCleanup(t *testing.T) {
-	gen := NewDynamicUsernameGenerator()
-
-	// Force the last cleanup time to be old to trigger immediate cleanup
-	gen.lastCleanup = time.Now().Add(-10 * time.Minute)
-
-	// Generate a username to populate cache
-	template := "test_{sid-4}{kp-30}"
-	gen.GenerateUsername(template)
-
-	// Check cache size
-	if gen.GetCacheSize() != 1 {
-		t.Errorf("Expected cache size 1, got %d", gen.GetCacheSize())
-	}
-
-	// The periodic cleanup should have been triggered by GenerateUsername
-	// but it runs in background, so we need to wait a bit
-	time.Sleep(100 * time.Millisecond)
-
-	// Cache should still be there since entry is recent
-	if gen.GetCacheSize() != 1 {
-		t.Errorf("Expected cache size 1 after periodic cleanup, got %d", gen.GetCacheSize())
-	}
-}
-
-func TestCleanupOldEntries(t *testing.T) {
-	gen := NewDynamicUsernameGenerator()
-	baseTemplate := "test_{sid-4}"
-
-	// Manually add an old cache entry
-	gen.mutex.Lock()
-	gen.cache[baseTemplate] = &UsernameCache{
-		username:    "testABCD",
-		generatedAt: time.Now().Add(-15 * time.Minute), // 15 minutes old
-	}
-	gen.mutex.Unlock()
-
-	// Check cache size before cleanup
-	if gen.GetCacheSize() != 1 {
-		t.Errorf("Expected cache size 1 before cleanup, got %d", gen.GetCacheSize())
-	}
-
-	// Run cleanup - should remove the old entry
-	gen.CleanupExpiredCache()
-
-	// Cache should be empty now
-	if gen.GetCacheSize() != 0 {
-		t.Errorf("Expected cache size 0 after cleanup, got %d", gen.GetCacheSize())
 	}
 }

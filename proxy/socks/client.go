@@ -32,7 +32,7 @@ func resolveUserBoundUser(ctx context.Context, user *protocol.MemoryUser, outbou
 	}
 
 	inbound := session.InboundFromContext(ctx)
-	if inbound == nil || inbound.Tag != "user_bind" {
+	if inbound == nil {
 		return user
 	}
 	if !inbound.Source.IsValid() || !inbound.Source.Address.Family().IsIP() {

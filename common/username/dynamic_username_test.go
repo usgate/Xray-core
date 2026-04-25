@@ -58,3 +58,50 @@ func TestGenerateBoundUsernameIgnoresKeepAliveRotation(t *testing.T) {
 		t.Fatalf("expected keep-alive not to rotate bound username, got %q and %q", first, second)
 	}
 }
+
+func TestExtractKeepDuration(t *testing.T) {
+	gen := NewDynamicUsernameGenerator()
+
+	testCases := []struct {
+		template string
+		expected int
+	}{
+		{"user_{sid-8}{kp-30}", 30},
+		{"user_{sid-8}{kp-60}", 60},
+		{"user_{sid-8}", 0},
+		{"user_{kp-invalid}", 0},
+		{"user_{kp-0}", 0},
+		{"user_{sid-8}{kp-120}", 120},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.template, func(t *testing.T) {
+			result := gen.extractKeepDuration(tc.template)
+			if result != tc.expected {
+				t.Errorf("expected duration %d, got %d for template %q", tc.expected, result, tc.template)
+			}
+		})
+	}
+}
+
+func TestCleanupOldEntries(t *testing.T) {
+	gen := NewDynamicUsernameGenerator()
+	baseTemplate := "test_{sid-4}"
+
+	gen.mutex.Lock()
+	gen.cache[baseTemplate] = &UsernameCache{
+		username:    "testABCD",
+		generatedAt: time.Now().Add(-15 * time.Minute),
+	}
+	gen.mutex.Unlock()
+
+	if gen.GetCacheSize() != 1 {
+		t.Fatalf("expected cache size 1 before cleanup, got %d", gen.GetCacheSize())
+	}
+
+	gen.CleanupExpiredCache()
+
+	if gen.GetCacheSize() != 0 {
+		t.Fatalf("expected cache size 0 after cleanup, got %d", gen.GetCacheSize())
+	}
+}
