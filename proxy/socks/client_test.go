@@ -88,6 +88,24 @@ func TestResolveUserBoundUserFallsBackToServerScope(t *testing.T) {
 	}
 }
 
+func TestResolveUserBoundUserSkipsStaticAccount(t *testing.T) {
+	user := &protocol.MemoryUser{
+		Account: &Account{
+			Username: "static-user",
+			Password: "static-pass",
+		},
+	}
+	ctx := session.ContextWithInbound(context.Background(), &session.Inbound{
+		Tag:    "FREE_IN",
+		Source: xnet.TCPDestination(xnet.ParseAddress("203.0.113.10"), 12345),
+	})
+
+	resolved := resolveUserBoundUser(ctx, user, &session.Outbound{Tag: "FREE_OUT"}, nil)
+	if resolved != user {
+		t.Fatal("expected static account to bypass binding and pool logic")
+	}
+}
+
 func assertMatches(t *testing.T, value, pattern string) {
 	t.Helper()
 	matched, err := regexp.MatchString(pattern, value)

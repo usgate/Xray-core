@@ -47,25 +47,7 @@ func resolveUserBoundUser(ctx context.Context, user *protocol.MemoryUser, outbou
 		return user
 	}
 
-	bindingKey := inbound.Source.Address.String()
-	switch {
-	case outbound != nil && outbound.Tag != "":
-		bindingKey += "|" + outbound.Tag
-	case server != nil:
-		bindingKey += "|" + server.Destination.String()
-	}
-
-	clonedUser := *user
-	clonedAccount := *account
-	if dynamicUsernameGen.HasBoundDynamicPattern(clonedAccount.Username) {
-		clonedAccount.Username = dynamicUsernameGen.GenerateBoundUsername(clonedAccount.Username, bindingKey)
-	}
-	if dynamicUsernameGen.HasBoundDynamicPattern(clonedAccount.Password) {
-		clonedAccount.Password = dynamicUsernameGen.GenerateBoundUsername(clonedAccount.Password, bindingKey)
-	}
-	clonedUser.Account = &clonedAccount
-
-	return &clonedUser
+	return socksCredentialPools.resolve(ctx, user, inbound, outbound, server, account)
 }
 
 // NewClient create a new Socks5 client based on the given config.

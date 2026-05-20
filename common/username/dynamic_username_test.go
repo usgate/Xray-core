@@ -59,6 +59,27 @@ func TestGenerateBoundUsernameIgnoresKeepAliveRotation(t *testing.T) {
 	}
 }
 
+func TestGenerateFreshUsernameIgnoresKeepAliveCache(t *testing.T) {
+	gen := NewDynamicUsernameGenerator()
+	template := "user_{sid-24}{kp-60}"
+
+	first := gen.GenerateFreshUsername(template)
+	second := gen.GenerateFreshUsername(template)
+
+	if first == second {
+		t.Fatalf("expected fresh username generation to bypass keep-alive cache, got %q twice", first)
+	}
+	for _, value := range []string{first, second} {
+		matched, err := regexp.MatchString(`^user_[a-zA-Z0-9]{24}$`, value)
+		if err != nil {
+			t.Fatalf("invalid regex: %v", err)
+		}
+		if !matched {
+			t.Fatalf("generated username %q does not match expected pattern", value)
+		}
+	}
+}
+
 func TestExtractKeepDuration(t *testing.T) {
 	gen := NewDynamicUsernameGenerator()
 

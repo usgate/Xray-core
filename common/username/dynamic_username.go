@@ -90,6 +90,13 @@ func (g *DynamicUsernameGenerator) GenerateUsername(template string) string {
 	return g.generateUsernameInternal(template)
 }
 
+// GenerateFreshUsername generates a dynamic username without using keep-alive
+// or binding caches. Any {kp-N} marker is ignored for this one generation.
+func (g *DynamicUsernameGenerator) GenerateFreshUsername(template string) string {
+	baseTemplate := g.kpPattern.ReplaceAllString(template, "")
+	return g.generateUsernameInternal(baseTemplate)
+}
+
 // GenerateBoundUsername generates a stable dynamic username for the given binding key.
 // This is used when the caller needs the same {sid-N}/{did-N} expansion to be reused
 // for repeated requests that share the same binding key, such as a client source IP.
