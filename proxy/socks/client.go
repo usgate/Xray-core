@@ -65,6 +65,7 @@ func NewClient(ctx context.Context, config *ClientConfig) (*Client, error) {
 		server:        server,
 		policyManager: v.GetFeature(policy.ManagerType()).(policy.Manager),
 	}
+	socksCredentialPools.prewarm(ctx, server)
 
 	return c, nil
 }

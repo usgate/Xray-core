@@ -9,7 +9,9 @@ import (
 
 	xnet "github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/transport"
 )
 
 func TestCredentialPoolUsesVerifiedCredentialBeforeFallback(t *testing.T) {
@@ -206,6 +208,55 @@ func TestCredentialPoolCleansIdleBindings(t *testing.T) {
 	}
 }
 
+func TestCredentialPoolPrewarmStartsFillForCountryTaggedDynamicAccount(t *testing.T) {
+	validatorStarted := make(chan struct{})
+	var startedOnce sync.Once
+	manager := newTestCredentialPoolManager(func(context.Context, xnet.Destination, socksCredential, string) credentialValidationResult {
+		startedOnce.Do(func() {
+			close(validatorStarted)
+		})
+		return credentialValidationResult{ok: true}
+	})
+	account := &Account{
+		Username: "user",
+		Password: "pass-US-{sid-24}",
+	}
+	user := &protocol.MemoryUser{Account: account}
+	server := protocol.NewServerSpec(xnet.TCPDestination(xnet.ParseAddress("198.51.100.1"), 1080), user)
+	ctx := session.ContextWithFullHandler(context.Background(), testOutboundHandler{tag: "US_OUT"})
+
+	manager.prewarm(ctx, server)
+
+	select {
+	case <-validatorStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expected prewarm to start background validation")
+	}
+}
+
+func TestCredentialPoolPrewarmSkipsStaticAccount(t *testing.T) {
+	validatorStarted := make(chan struct{})
+	manager := newTestCredentialPoolManager(func(context.Context, xnet.Destination, socksCredential, string) credentialValidationResult {
+		close(validatorStarted)
+		return credentialValidationResult{ok: true}
+	})
+	account := &Account{
+		Username: "user",
+		Password: "pass",
+	}
+	user := &protocol.MemoryUser{Account: account}
+	server := protocol.NewServerSpec(xnet.TCPDestination(xnet.ParseAddress("198.51.100.1"), 1080), user)
+	ctx := session.ContextWithFullHandler(context.Background(), testOutboundHandler{tag: "US_OUT"})
+
+	manager.prewarm(ctx, server)
+
+	select {
+	case <-validatorStarted:
+		t.Fatal("expected static account to skip prewarm")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestExpectedCountryFromOutbound(t *testing.T) {
 	testCases := []struct {
 		name      string
@@ -227,6 +278,33 @@ func TestExpectedCountryFromOutbound(t *testing.T) {
 			}
 		})
 	}
+}
+
+type testOutboundHandler struct {
+	tag string
+}
+
+func (h testOutboundHandler) Start() error {
+	return nil
+}
+
+func (h testOutboundHandler) Close() error {
+	return nil
+}
+
+func (h testOutboundHandler) Tag() string {
+	return h.tag
+}
+
+func (h testOutboundHandler) Dispatch(context.Context, *transport.Link) {
+}
+
+func (h testOutboundHandler) SenderSettings() *serial.TypedMessage {
+	return nil
+}
+
+func (h testOutboundHandler) ProxySettings() *serial.TypedMessage {
+	return nil
 }
 
 func TestEvaluateCredentialValidationResponse(t *testing.T) {

@@ -141,6 +141,31 @@ func (m *credentialPoolManager) resolve(ctx context.Context, user *protocol.Memo
 	return cloneUserWithCredential(user, account, credential)
 }
 
+func (m *credentialPoolManager) prewarm(ctx context.Context, server *protocol.ServerSpec) {
+	if server == nil || server.User == nil {
+		return
+	}
+	handler := session.FullHandlerFromContext(ctx)
+	if handler == nil {
+		return
+	}
+	tag := handler.Tag()
+	expectedCountry, canVerify := expectedCountryFromOutbound(&session.Outbound{Tag: tag})
+	if !canVerify {
+		return
+	}
+	account, ok := server.User.Account.(*Account)
+	if !ok {
+		return
+	}
+	if !dynamicUsernameGen.HasBoundDynamicPattern(account.Username) && !dynamicUsernameGen.HasBoundDynamicPattern(account.Password) {
+		return
+	}
+
+	poolKey := tag + "\x00" + account.Username + "\x00" + account.Password
+	m.ensureFill(poolKey, expectedCountry, server, account)
+}
+
 func (m *credentialPoolManager) ensureFill(poolKey, expectedCountry string, server *protocol.ServerSpec, account *Account) {
 	if expectedCountry == "" || server == nil {
 		return
